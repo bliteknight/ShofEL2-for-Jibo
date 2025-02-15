@@ -4,6 +4,9 @@
 #define JETSON_TK1_VID 0x0955
 #define JETSON_TK1_PID 0x7140
 
+#define JIBO_TK1_VID 0x0955
+#define JIBO_TK1_PID 0x7740
+
 #define SHIELD_TK1_VID 0x0955
 #define SHIELD_TK1_PID 0x7f40
 

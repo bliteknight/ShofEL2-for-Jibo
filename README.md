@@ -1,3 +1,19 @@
+# USage notes for 
+I am running a Mac Book Pro with Bootcamp and Windows 10 as the development environment. I run Oracle Box under Windows 
+and VMWare Fusion on the Mac.
+
+I have used Oracle Box with Ubuntu 14.04 (to support L4t), as well as 18.04 LTS to compile the exploit using the 
+apt-get install gcc-arm-none-eabi. The exploit will compile but will not run and smash the stack even when USB is set 
+to xHCI
+
+To get the exploit to work, I used Ubuntu 20.04 LTS directly on the Mac with VNWare fusion. Then it worked as expected 
+and I could copy the bootrom as a test. The rom matches that of the Jetson and that posted by lumingyu0423 and forked in
+my /Tegra-bootrom copy.
+
+While I compiled Crosstools ng and have a docker script to build the tools whcih I will post under exploits, the 
+
+	apt install gcc-arm-non-eabi 
+worked
 # ShofEL2 for T124
 
 This is a Fusee Gelee / ShofEL2 exploit port for the Nvidia T124 (a.k.a Jetson TK1, Shield K1, etc).
