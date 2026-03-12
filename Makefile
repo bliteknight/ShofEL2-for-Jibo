@@ -1,6 +1,6 @@
 CFLAGS := -Wall -Werror -I include -MMD
 
-BIN_FILES = reset_example.bin jtag_example.bin boot_bct.bin mem_dumper_usb_server.bin ipatch_rcm.bin intermezzo.bin
+BIN_FILES = reset_example.bin jtag_example.bin intermezzo.bin boot_bct.bin mem_dumper_usb_server.bin emmc_server.bin
 
 all: shofel2_t124 $(BIN_FILES)
 
@@ -29,10 +29,11 @@ CC_ARM = $(TOOLCHAIN_ARM)gcc
 AS_ARM = $(TOOLCHAIN_ARM)as
 OBJCOPY_ARM = $(TOOLCHAIN_ARM)objcopy
 
-CFLAGS_ARM := $(CFLAGS) -march=armv4t -mthumb -Os -ffreestanding \
+CFLAGS_ARM := -Wall -I include -MMD -march=armv4t -mthumb -Os -ffreestanding \
 	-fno-common	-fomit-frame-pointer -nostdlib -fno-builtin-printf \
 	-fno-asynchronous-unwind-tables -fPIE -fno-builtin -fno-exceptions \
-	-Wl,--no-dynamic-linker,--build-id=none,-T,payloads/payload.ld -Wno-array-bounds
+	-Wno-array-bounds -Wno-error \
+	-Wl,--no-dynamic-linker,--build-id=none,-T,payloads/payload.ld
 
 # shameless copypasta from https://stackoverflow.com/a/2908351/375416
 C_FILES_ARM := $(wildcard payloads/*.c)
@@ -48,16 +49,16 @@ build/reset_example.elf: build/obj_arm/reset_example.o
 build/jtag_example.elf: build/obj_arm/jtag_example.o
 	$(CC_ARM) $(CFLAGS_ARM) -o $@ $^
 
-build/intermezzo.elf: build/obj_arm/intermezzo.o
-	$(CC_ARM) $(CFLAGS_ARM) -o $@ $^
-
 build/boot_bct.elf: build/obj_arm/boot_bct.o
 	$(CC_ARM) $(CFLAGS_ARM) -o $@ $^
 
 build/mem_dumper_usb_server.elf: build/obj_arm/mem_dumper_usb_server.o
 	$(CC_ARM) $(CFLAGS_ARM) -o $@ $^
 
-build/ipatch_rcm.elf: build/obj_arm/ipatch_rcm.o
+build/emmc_server.elf: build/obj_arm/emmc_server.o
+	$(CC_ARM) $(CFLAGS_ARM) -o $@ $^
+
+build/intermezzo.elf: build/obj_arm/intermezzo.o
 	$(CC_ARM) $(CFLAGS_ARM) -o $@ $^
 
 %.bin: build/%.elf
@@ -72,4 +73,3 @@ clean:
 
 cleanall: clean
 	rm -f build/obj_arm/*.d build/obj_x86/*.d
-
