@@ -63,10 +63,6 @@ static u16 read_clkctl(void) {
     return read16(SDMMC4_BASE + 0x2C);
 }
 
-static void write_clkctl(u16 val) {
-    write16(SDMMC4_BASE + 0x2C, val);
-}
-
 /* Software Reset: 8-bit register at offset 0x2F */
 static void write_swrst(u8 bits) {
     write8(SDMMC4_BASE + 0x2F, bits);
@@ -74,16 +70,6 @@ static void write_swrst(u8 bits) {
 
 static u8 read_swrst(void) {
     return read8(SDMMC4_BASE + 0x2F);
-}
-
-/* Host Control: 8-bit at offset 0x28 */
-static void write_hostctl(u8 val) {
-    write8(SDMMC4_BASE + 0x28, val);
-}
-
-/* Power Control: 8-bit at offset 0x29 */
-static void write_pwrctl(u8 val) {
-    write8(SDMMC4_BASE + 0x29, val);
 }
 
 /* Timeout Control: 8-bit at offset 0x2E */
