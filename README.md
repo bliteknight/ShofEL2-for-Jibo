@@ -149,13 +149,13 @@ Key things to check in the output:
 Put Jibo in RCM mode again, then:
 
 ```bash
-sudo ./shofel2_t124 EMMC_READ 0 1D94400 ~/jibo_emmc.img
+sudo ./shofel2_t124 EMMC_READ 0 1D30000 ~/jibo_emmc.img
 ```
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | Start sector | `0` | Beginning of user area |
-| Sector count | `0x1D94400` | ~14.79 GiB (full eMMC) |
+| Sector count | `0x1D30000` | 14.6 GiB (confirmed from u-boot log) |
 | Output | `~/jibo_emmc.img` | Change path as needed |
 
 Progress is printed every ~4 MB. A full dump over USB 2.0 takes approximately **2–4 hours**.

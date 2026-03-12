@@ -205,15 +205,15 @@ Sector 0 read:   OK
 ## eMMC Dump Command
 
 ```bash
-# Full eMMC dump (14.79 GiB, ~30.6M sectors)
-sudo ./shofel2_t124 EMMC_READ 0 1D94400 /home/bliteknight/Desktop/Jibo/emmc_mbr.img
+# Full eMMC dump (14.6 GiB, 30,605,312 sectors)
+sudo ./shofel2_t124 EMMC_READ 0 1D30000 /home/bliteknight/Desktop/Jibo/emmc_mbr.img
 ```
 
 | Parameter | Value |
 |-----------|-------|
 | Start sector | `0x0` |
-| Sector count | `0x1D94400` (30,998,528 sectors) |
-| Total size | ~14.79 GiB |
+| Sector count | `0x1D30000` (30,605,312 sectors) |
+| Total size | 14.6 GiB (confirmed from u-boot: `HAG4a2 14.6 GiB`) |
 | Output file | `/home/bliteknight/Desktop/Jibo/emmc_mbr.img` |
 
 ---
