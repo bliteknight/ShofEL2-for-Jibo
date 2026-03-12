@@ -87,13 +87,25 @@ sudo udevadm trigger
 
 ## Putting Jibo into RCM Mode
 
-Jibo uses the Tegra T124 bootrom RCM (Recovery Mode). To enter RCM:
+Jibo exposes the Tegra T124 RCM (Recovery Mode) button on its base. There are two buttons on the underside — a reset button and a smaller button below it. The smaller button below the reset button is the RCM button.
 
+**Method 1 — Power on:**
 1. Power off Jibo completely.
-2. Short the **RCM pin** on the Apalis TK1 module to ground. On Jibo this can be done by bridging the appropriate pads on the carrier board — consult your hardware notes for the exact location.
-3. While the RCM pin is shorted, apply power (USB-C or barrel jack depending on your setup).
-4. Jibo will enumerate on USB as `0955:7740`.
-5. Verify with: `lsusb | grep 0955`
+2. Hold down the **RCM button** (the button below the reset button on the base).
+3. While holding it, apply power.
+4. Release the button once powered on.
+
+**Method 2 — Reset:**
+1. Hold down the **RCM button** (the button below the reset button on the base).
+2. While holding it, press the reset button.
+3. Release both buttons.
+
+In either case, Jibo will enumerate on USB as `0955:7740` instead of booting normally.
+
+Verify with:
+```bash
+lsusb | grep 0955
+```
 
 ---
 
