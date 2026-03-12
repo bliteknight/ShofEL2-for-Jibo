@@ -1,79 +1,250 @@
-# USage notes for 
-I am running a Mac Book Pro with Bootcamp and Windows 10 as the development environment. I run Oracle Box under Windows 
-and VMWare Fusion on the Mac.
+# ShofEL2 for Jibo (Tegra T124)
 
-I have used Oracle Box with Ubuntu 14.04 (to support L4t), as well as 18.04 LTS to compile the exploit using the 
-apt-get install gcc-arm-none-eabi. The exploit will compile but will not run and smash the stack even when USB is set 
-to xHCI
+A Fusée Gelée / ShofEL2 exploit port for the NVIDIA Tegra T124 (K1), targeting the **Jibo social robot** (Toradex Apalis TK1 module). Allows booting arbitrary payloads via USB RCM mode, dumping fuses and memory, and reading/writing the eMMC.
 
-To get the exploit to work, I used Ubuntu 20.04 LTS directly on the Mac with VNWare fusion. Then it worked as expected 
-and I could copy the bootrom as a test. The rom matches that of the Jetson and that posted by lumingyu0423 and forked in
-my /Tegra-bootrom copy.
+Based on the original ShofEL2 code and Katherine Temkin's research. See:
+- https://fail0verflow.com/blog/2018/shofel2/
+- https://github.com/Qyriad/fusee-launcher/blob/master/report/fusee_gelee.md
 
-While I compiled Crosstools ng and have a docker script to build the tools whcih I will post under exploits, the 
+---
 
-	apt install gcc-arm-non-eabi 
-worked
-# ShofEL2 for T124
+## Obligatory Disclaimer
 
-This is a Fusee Gelee / ShofEL2 exploit port for the Nvidia T124 (a.k.a Jetson TK1, Shield K1, etc).
+This code is provided without any warranty. Use at your own responsibility.
 
-Currently this code allows you to download and execute a payload to the T124, dump the fuses and memory and boot bct without apply the locks.
+---
 
-Mostly of my code is based on the original ShofEL2 code and Katherine Temkin research, so I cannot take that much credit for this.
+## Hardware
 
-See the original fail0verflow blog post: https://fail0verflow.com/blog/2018/shofel2/
-See additional info at the original Katherine Temkin github: https://github.com/Qyriad/fusee-launcher/blob/master/report/fusee_gelee.md
+| Component | Details |
+|-----------|---------|
+| Device | Jibo social robot |
+| SoC | NVIDIA Tegra T124 (K1) |
+| Module | Toradex Apalis TK1 |
+| eMMC | Hynix HAG4a2, ~14.79 GiB |
+| USB VID:PID (RCM) | 0x0955:0x7740 |
 
-## Obligatory disclaimer
+---
 
-This code is provided without any warranty, use under your own resposability.
+## Full Setup — Fresh Ubuntu PC
+
+Tested on **Ubuntu 20.04 LTS** and **22.04 LTS**. Earlier versions (18.04) compile but USB does not reliably smash the stack. **Ubuntu 20.04+ is required.**
+
+### 1. Install dependencies
+
+```bash
+sudo apt update
+sudo apt install -y \
+    build-essential \
+    gcc-arm-none-eabi \
+    binutils-arm-none-eabi \
+    libusb-1.0-0-dev \
+    git \
+    usbutils
+```
+
+### 2. Clone the repo
+
+```bash
+git clone https://github.com/bliteknight/ShofEL2-for-Jibo.git
+cd ShofEL2-for-Jibo
+git checkout t124
+```
+
+### 3. Build
+
+```bash
+make
+```
+
+This produces:
+- `shofel2_t124` — the x86 host tool
+- `emmc_server.bin` — ARM payload for eMMC read/write
+- `mem_dumper_usb_server.bin` — ARM payload for memory dumps
+- `boot_bct.bin`, `intermezzo.bin`, and other payloads
+
+### 4. USB permissions (avoid running as root every time)
+
+Create a udev rule so your user can access the Jibo USB device without `sudo`:
+
+```bash
+sudo tee /etc/udev/rules.d/99-jibo-rcm.rules <<'EOF'
+# Jibo (Tegra T124 RCM)
+SUBSYSTEM=="usb", ATTR{idVendor}=="0955", ATTR{idProduct}=="7740", MODE="0666"
+# Jetson TK1 RCM (fallback)
+SUBSYSTEM=="usb", ATTR{idVendor}=="0955", ATTR{idProduct}=="7140", MODE="0666"
+# Shield TK1 RCM (fallback)
+SUBSYSTEM=="usb", ATTR{idVendor}=="0955", ATTR{idProduct}=="7f40", MODE="0666"
+EOF
+
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+> **VM users:** If running in VirtualBox or VMware, make sure USB 3.0 (xHCI) is enabled for the VM. USB 2.0 (EHCI) may fail to smash the stack correctly.
+
+---
+
+## Putting Jibo into RCM Mode
+
+Jibo uses the Tegra T124 bootrom RCM (Recovery Mode). To enter RCM:
+
+1. Power off Jibo completely.
+2. Short the **RCM pin** on the Apalis TK1 module to ground. On Jibo this can be done by bridging the appropriate pads on the carrier board — consult your hardware notes for the exact location.
+3. While the RCM pin is shorted, apply power (USB-C or barrel jack depending on your setup).
+4. Jibo will enumerate on USB as `0955:7740`.
+5. Verify with: `lsusb | grep 0955`
+
+---
 
 ## Usage
 
-You need an arm-*-eabi toolkit. You can use [Crosstool-ng](https://crosstool-ng.github.io/download/) compile it.
+```
+./shofel2_t124 ( MEM_DUMP | READ_FUSES | BOOT_BCT | PAYLOAD | DUMP_STACK | EMMC_STATUS | EMMC_READ | EMMC_WRITE ) [options]
+```
 
-Build the loader and payloads:
+| Command | Arguments | Description |
+|---------|-----------|-------------|
+| `MEM_DUMP` | `address length out_file` | Dump `length` bytes from `address` to file |
+| `READ_FUSES` | `out_file` | Dump T124 fuses to file and print to console |
+| `BOOT_BCT` | — | Boot BCT without applying locks |
+| `PAYLOAD` | `payload.bin [arm\|thumb]` | Execute a custom payload (thumb mode default) |
+| `DUMP_STACK` | — | Dump the stack before smashing it |
+| `EMMC_STATUS` | — | Initialize eMMC and dump all diagnostic registers |
+| `EMMC_READ` | `start_sector num_sectors out_file` | Read sectors from eMMC to file |
+| `EMMC_WRITE` | `start_sector in_file` | Write file to eMMC at start_sector |
 
-    $ cd ShofEL2-for-T124
-    $ make
+All sector/address arguments are hex values.
 
-Usage
+---
 
-    $ ./shofel2_t124 ( MEM_DUMP | READ_FUSES | BOOT_BCT | PAYLOAD ) [options]
-    $ MEM_DUMP address length out_file -> Dumps "length" bytes starting from "address" to "out_file".
-    $ READ_FUSES out_file -> Dumps the T124 fuses to "out_file" and show them in console. 
-    $ BOOT_BCT -> Boots BCT without applying locks.
-    $ PAYLOAD payload.bin [arm|thumb] -> Boots "payload.bin" the entrymode mode can be specified (thumb by default)
-    
+## Dumping the Jibo eMMC
 
-## Interesting facts (maybe some of them wrong)
+### Step 1 — Verify eMMC initialization
 
-* RCM loads the payload to IRAM at 0x4000E000 (described on tegrarcm source code).
-* RCM cmd format is sligitly different. RCM cmd header length is 0x284 bytes but the firtst 4 bytes still containing the RCM cmd length.
-* RCM cmd length restrictions are different to X1 bootrom:
-	* Bulk transfers need to be multiply of 0x1000 to ensure use the whole usb buffer.
-	* RCM cmd length minus 0x284 (header length) must be a multiple of 0x10 (which means RCM CMD length needs to end in 4).
-	* RCM cmd min length is 0x404 bytes. Due to the previous condition the minimun length would be 0x1004.
-	* RCM cmd length cannot exceed avaiable IRAM for the payload (from 0x4000E000 till 0x4003FFFF).
-	* With all this in mind max RCM cmd length is 0x32274 bytes.
-	* Since the exploit uses usb buffer 2, only 0x31000 bytes can be used for the payload in order to avoid finishing the RCM cmd.
-* A payload can still be loaded using the same path as the one used by the original shofEL2, since no validation is carried out till the whole payload is received.
-* Even if the specs says that the JTAG is enabled by default, cold bootrom code disasbles it while is runnig (not as dumb as expected :D).
-* RCM runs on an ARM7TDMI core, I manage to halt the CPU on uboot using a Segger J-LINK.
-* When the poisoned get status is executed, 0x30C bytes will be copied before the payload. These bytes are part of the execution stack, starting with the USB status var.
-* Using the original sanity_check function from shofel2, I got from the execution stack that the RCM USB buffers are located at 0x40004000 and 0x40008000.
-* Two USB buffers of 0x1000 bytes still present. They still alternating on each USB txn. And odd number of USB txn will let you on the hight buffer for the next txn.
-* Using the original sanity_check function from shofel2, I got from the execution stack that the memcpy return address is located at 0x4000DCD8 (0x4000DCF4 - 0xC - 2 * 4 - 2 * 4).
-* The position in the RCM cmd where the entry adress need to be write to smash the memcpy return address is calculated as follow:
-	* n_bytes_to_copy = 0x4000DCD8 - 0x40008000 (memcpy_ret_add_loc - usb_buf2_add) -> n_bytes_to_copy = 0x5CD8 bytes
-	* pos_in_payload = n_bytes_to_copy - 0x30C (copied from the execution stack) - 0x4 -> pos_in_payload = 0x59C8
-	* pos_in_rcm_cmd = pos_in_payload + 0x284 (header length) -> pos_in_rcm_cmd = 0x5C4C
-* I found the following functions on the the bootrom:
+Always run `EMMC_STATUS` first to confirm the controller initialized correctly before attempting a full dump.
+
+Put Jibo in RCM mode, then:
+
+```bash
+sudo ./shofel2_t124 EMMC_STATUS
+```
+
+A successful run ends with:
+```
+RESULT: === FULLY INITIALIZED! ===
+```
+
+Key things to check in the output:
+- `Int Clock Stable: YES`
+- `Card Inserted: YES`
+- `Initialized: 1`
+- `Init Error: 0x00000000 (none)`
+- `Sector 0 read: (OK)`
+
+> **Note:** After each command Jibo reboots back into RCM mode automatically. You will need to re-enter RCM mode (re-short the pin or re-power) before each subsequent command.
+
+### Step 2 — Full eMMC dump
+
+Put Jibo in RCM mode again, then:
+
+```bash
+sudo ./shofel2_t124 EMMC_READ 0 1D94400 ~/jibo_emmc.img
+```
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Start sector | `0` | Beginning of user area |
+| Sector count | `0x1D94400` | ~14.79 GiB (full eMMC) |
+| Output | `~/jibo_emmc.img` | Change path as needed |
+
+Progress is printed every ~4 MB. A full dump over USB 2.0 takes approximately **2–4 hours**.
+
+### Step 3 — Inspect the image
+
+```bash
+# Check the image looks sane
+xxd ~/jibo_emmc.img | head -4
+
+# List partitions
+fdisk -l ~/jibo_emmc.img
+
+# Mount a partition (example: partition 1 — get offset from fdisk output)
+sudo mount -o loop,offset=$((sector * 512)) ~/jibo_emmc.img /mnt
+```
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `Couldn't open the usb` | Jibo not in RCM mode, or USB permissions not set. Try `sudo`. Check `lsusb`. |
+| `Hacky Get Status finished correctly... Not cool` | Stack was not smashed. Use Ubuntu 20.04+, enable USB 3.0 (xHCI) in VM settings. |
+| `EMMC_STATUS` shows `Init Error: 0xE000000x` | eMMC command failed. See `CMD error details` section of output. Re-enter RCM and retry. |
+| `Int Clock Stable: NO` | IROM `device_init_generic` failed. Check `IRAM[0x400022FC]` in output — should be an IROM pointer (`0x100000–0x110000`). |
+| USB receive timeout during `EMMC_READ` | Transient USB error. Re-enter RCM and restart the dump from the failed sector. |
+| Build error: `arm-none-eabi-gcc: not found` | Run `sudo apt install gcc-arm-none-eabi` |
+
+---
+
+## How It Works
+
+### The Exploit
+
+The Tegra T124 bootrom's USB `GET_STATUS` control transfer copies data onto the stack without bounds checking. By crafting an oversized RCM payload, the memcpy overwrites the return address on the ARM7TDMI boot CPU's stack, redirecting execution into our payload in IRAM.
+
+### eMMC Initialization — Key Discovery
+
+The critical step that makes eMMC work from a payload is calling the IROM's own `device_init_generic` function **before** touching the SDHCI controller:
+
+```c
+// Thumb call to IROM function at 0x101EA8
+((int(*)(int,int))0x101EA9)(0, 3);  // device=0 (SDMMC4), voltage=3 (3.3V mode)
+```
+
+This function reads a table pointer from IRAM at `0x400022FC` (which survives the exploit) and uses it to configure pinmux, pad drive strength, and voltage from the IROM's internal data tables. Without this call, `INT_CLK_STABLE` never sets regardless of clock source or divider.
+
+Full init sequence: Release PMC DPD → call IROM → CAR reset cycle → pad autocalibration → clock stable poll → CMD0 → CMD1 (poll OCR) → CMD2 → CMD3 → CMD7 → CMD16.
+
+---
+
+## IROM Function Table
+
+| Function | Address | Description |
+|----------|---------|-------------|
+| `ep1_in_write_imm` | `0x001065C0` | Write to USB EP1_IN |
+| `ep1_out_read_imm` | `0x00106612` | Read from USB EP1_OUT |
+| `do_bct_boot` | `0x00100624` | Boot BCT without locks |
+| `device_init_generic` | `0x00101EA8` | Pad/pinmux init from IROM tables |
+
+---
+
+## Notes on Development Environment
+
+- **Ubuntu 20.04 LTS or newer required** — USB stack behavior in 18.04 prevents reliable stack smashing.
+- **VM users:** Enable USB 3.0 xHCI in your VM settings. EHCI (USB 2.0) is unreliable.
+- `gcc-arm-none-eabi` from apt works fine — no need to build Crosstool-ng.
+- The tool polls for the device every 200ms; plug in USB before or after running the command.
+
+---
+
+## Interesting Bootrom Facts
+
+- RCM payload loads to IRAM at `0x4000E000`.
+- RCM cmd header is `0x284` bytes; bulk transfers must be multiples of `0x1000`.
+- RCM cmd length minus `0x284` must be a multiple of `0x10` (length must end in `4`).
+- Min RCM cmd length: `0x1004` bytes. Max usable payload size: `0x31000` bytes (USB buffer 2 limit).
+- The poisoned `GET_STATUS` copies `0x30C` bytes of stack before the payload landing.
+- USB buffers are at `0x40004000` and `0x40008000`; they alternate on each transaction.
+- memcpy return address location: `0x4000DCD8`.
+- Stack smash position in RCM cmd: `0x5C4C`.
+- RCM runs on an ARM7TDMI core (not the main Cortex-A15 cluster).
+- JTAG is disabled by the bootrom during execution (can be re-enabled via payload).
 
 | Function | IROM Address | Description |
-| ------------- | ------------- | ------------- |
-| void ep1_in_write_imm(void *buffer, u32 size, u32 *num_xfer) | 0x001065C0 | Writes EP1_IN |
-| void ep1_out_read_imm(void *buffer, u32 size, u32 *num_xfer) | 0x00106612 | Reads EP1_OUT |
-| void do_bct_boot() | 0x00100624 | Boots BCT without applying locks. |
-
+|----------|-------------|-------------|
+| `ep1_in_write_imm(void *buf, u32 size, u32 *num_xfer)` | `0x001065C0` | Writes EP1_IN |
+| `ep1_out_read_imm(void *buf, u32 size, u32 *num_xfer)` | `0x00106612` | Reads EP1_OUT |
+| `do_bct_boot()` | `0x00100624` | Boots BCT without applying locks |
+| `device_init_generic(int device, int voltage)` | `0x00101EA8` | Pad/pinmux/drive init from IROM tables |
