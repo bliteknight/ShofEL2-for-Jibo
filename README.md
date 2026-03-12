@@ -175,6 +175,72 @@ sudo mount -o loop,offset=$((sector * 512)) ~/jibo_emmc.img /mnt
 
 ---
 
+## Writing an Image Back to Jibo's eMMC
+
+> **Warning:** Writing to the eMMC will overwrite existing data. Double-check your sector offset and image file before running. There is no undo.
+
+This is useful for restoring a previously dumped image, flashing a modified partition, or recovering a bricked Jibo.
+
+### Step 1 — Verify eMMC initialization
+
+Always run `EMMC_STATUS` first before any write operation:
+
+```bash
+sudo ./shofel2_t124 EMMC_STATUS
+```
+
+Confirm you see `RESULT: === FULLY INITIALIZED! ===` before proceeding.
+
+### Step 2 — Write the full image back
+
+To restore a complete eMMC dump (e.g. `jibo_emmc.img`) starting at sector 0:
+
+> **Note:** Re-enter RCM mode before running this command.
+
+```bash
+sudo ./shofel2_t124 EMMC_WRITE 0 ~/jibo_emmc.img
+```
+
+The tool reads the file size automatically and calculates the sector count. Progress is printed every ~4 MB. Writing a full 14.79 GiB image takes approximately **2–4 hours**.
+
+### Step 3 — Write a single partition
+
+If you only want to restore or flash a specific partition rather than the full eMMC, first identify the partition's start sector from your image:
+
+```bash
+fdisk -l ~/jibo_emmc.img
+```
+
+Example output:
+```
+Device             Start      End  Sectors  Size Type
+jibo_emmc.img1      2048   526335   524288  256M Linux filesystem
+jibo_emmc.img2    526336  1574911  1048576  512M Linux filesystem
+```
+
+Extract the partition to a file:
+
+```bash
+# Extract partition 1 (start=2048, size=524288 sectors)
+dd if=~/jibo_emmc.img of=~/part1.img bs=512 skip=2048 count=524288
+```
+
+Put Jibo in RCM mode, then write only that partition starting at its original sector:
+
+```bash
+sudo ./shofel2_t124 EMMC_WRITE 800 ~/part1.img
+```
+
+> Sector offsets are in hex. `2048` decimal = `0x800` hex.
+
+### Notes
+
+- The `EMMC_WRITE` command streams the file sector-by-sector. If the write is interrupted, re-enter RCM mode and re-run from the beginning — partial writes may leave the eMMC in an inconsistent state.
+- The file size must be a multiple of 512 bytes. If it is not, the tool will truncate to the nearest sector boundary with a warning.
+- After writing, Jibo reboots into RCM mode. Remove the RCM short and power-cycle to boot normally.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Fix |
