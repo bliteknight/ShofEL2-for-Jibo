@@ -112,11 +112,12 @@ lsusb | grep 0955
 ## Usage
 
 ```
-./shofel2_t124 ( MEM_DUMP | READ_FUSES | BOOT_BCT | PAYLOAD | DUMP_STACK | EMMC_STATUS | EMMC_READ | EMMC_WRITE ) [options]
+./shofel2_t124 [--port SYSFS_PATH] ( MEM_DUMP | READ_FUSES | BOOT_BCT | PAYLOAD | DUMP_STACK | EMMC_STATUS | EMMC_READ | EMMC_WRITE ) [options]
 ```
 
-| Command | Arguments | Description |
-|---------|-----------|-------------|
+| Option / Command | Arguments | Description |
+|------------------|-----------|-------------|
+| `--port SYSFS_PATH` | e.g. `1-2` or `1-2.3` | Only connect to the device at this USB port. Useful when multiple Jibos are connected simultaneously. |
 | `MEM_DUMP` | `address length out_file` | Dump `length` bytes from `address` to file |
 | `READ_FUSES` | `out_file` | Dump T124 fuses to file and print to console |
 | `BOOT_BCT` | — | Boot BCT without applying locks |
@@ -127,6 +128,21 @@ lsusb | grep 0955
 | `EMMC_WRITE` | `start_sector in_file` | Write file to eMMC at start_sector |
 
 All sector/address arguments are hex values.
+
+### Targeting a specific USB port
+
+When multiple Jibos are connected, use `--port` to target a specific one:
+
+```bash
+# Find the sysfs port paths
+ls /sys/bus/usb/devices/ | grep -v :
+
+# Back up two Jibos simultaneously in separate terminals
+sudo ./shofel2_t124 --port 1-2 EMMC_READ 0 1CE0000 ~/jibo1.img
+sudo ./shofel2_t124 --port 1-3 EMMC_READ 0 1CE0000 ~/jibo2.img
+```
+
+The port path is the sysfs device name (e.g. `1-2` = bus 1, port 2). For a device connected through a USB hub it will look like `1-2.3`.
 
 ---
 
@@ -170,7 +186,7 @@ sudo ./shofel2_t124 EMMC_READ 0 1CE0000 ~/jibo_emmc.img
 | Sector count | `0x1CE0000` | 30,277,632 sectors (confirmed from Linux kernel detection) |
 | Output | `~/jibo_emmc.img` | Change path as needed |
 
-Progress is printed every ~4 MB. A full dump over USB 2.0 takes approximately **2–4 hours**.
+Progress is printed every ~4 MB. A full dump takes approximately **1–2 hours**.
 
 ### Step 3 — Inspect the image
 
@@ -213,7 +229,7 @@ To restore a complete eMMC dump (e.g. `jibo_emmc.img`) starting at sector 0:
 sudo ./shofel2_t124 EMMC_WRITE 0 ~/jibo_emmc.img
 ```
 
-The tool reads the file size automatically and calculates the sector count. Progress is printed every ~4 MB. Writing a full 14.79 GiB image takes approximately **2–4 hours**.
+The tool reads the file size automatically and calculates the sector count. Progress is printed every ~4 MB. Writing a full 14.79 GiB image takes approximately **1–2 hours**.
 
 ### Step 3 — Write a single partition
 
@@ -247,7 +263,7 @@ sudo ./shofel2_t124 EMMC_WRITE 800 ~/part1.img
 
 ### Notes
 
-- The `EMMC_WRITE` command streams the file sector-by-sector. If the write is interrupted, re-enter RCM mode and re-run from the beginning — partial writes may leave the eMMC in an inconsistent state.
+- The `EMMC_WRITE` command streams the file in 16 KB chunks. If the write is interrupted, re-enter RCM mode and re-run from the beginning — partial writes may leave the eMMC in an inconsistent state.
 - The file size must be a multiple of 512 bytes. If it is not, the tool will truncate to the nearest sector boundary with a warning.
 - After writing, Jibo reboots into RCM mode. Remove the RCM short and power-cycle to boot normally.
 
@@ -283,7 +299,18 @@ The critical step that makes eMMC work from a payload is calling the IROM's own 
 
 This function reads a table pointer from IRAM at `0x400022FC` (which survives the exploit) and uses it to configure pinmux, pad drive strength, and voltage from the IROM's internal data tables. Without this call, `INT_CLK_STABLE` never sets regardless of clock source or divider.
 
-Full init sequence: Release PMC DPD → call IROM → CAR reset cycle → pad autocalibration → clock stable poll → CMD0 → CMD1 (poll OCR) → CMD2 → CMD3 → CMD7 → CMD16.
+Full init sequence: Release PMC DPD → call IROM → CAR reset cycle → pad autocalibration → clock stable poll → CMD0 → CMD1 (poll OCR) → CMD2 → CMD3 → CMD7 → CMD16 → increase clock to 12 MHz → CMD6 (4-bit bus) → update HOST_CONTROL.
+
+### eMMC Transfer Speed
+
+The payload switches to high-speed mode after the identification sequence completes:
+
+- **Clock:** identification runs at 375 KHz (SDCLKFS=0x20); after CMD16 the divider is changed to SDCLKFS=0x01 → 12 MHz (within the 26 MHz default-speed limit, no timing mode switch needed).
+- **Bus width:** CMD6 SWITCH sets EXT_CSD[183]=1 (4-bit), and HOST_CONTROL is updated to match.
+- **Multi-block transfers:** reads use CMD18 (READ_MULTIPLE_BLOCK) and writes use CMD25 (WRITE_MULTIPLE_BLOCK) with SDHCI auto-CMD12, eliminating per-sector command overhead.
+- **Chunk size:** 32 sectors (16 KB) per USB bulk transfer.
+
+Combined these give roughly a 64× speedup over identification speed.
 
 ---
 
