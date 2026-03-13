@@ -186,7 +186,7 @@ sudo ./shofel2_t124 EMMC_READ 0 1D70000 ~/jibo_emmc.img
 | Sector count | `0x1D70000` | 30,932,992 sectors (~14.75 GiB, covers full GPT including skills partition) |
 | Output | `~/jibo_emmc.img` | Change path as needed |
 
-Progress is printed every ~4 MB. A full dump takes approximately **1–2 hours**.
+Progress is printed every ~4 MB.
 
 ### Step 3 — Mount and inspect the image
 
@@ -264,7 +264,7 @@ To restore a complete eMMC dump (e.g. `jibo_emmc.img`) starting at sector 0:
 sudo ./shofel2_t124 EMMC_WRITE 0 ~/jibo_emmc.img
 ```
 
-The tool reads the file size automatically and calculates the sector count. Progress is printed every ~4 MB. Writing a full 14.79 GiB image takes approximately **1–2 hours**.
+The tool reads the file size automatically and calculates the sector count. Progress is printed every ~4 MB.
 
 ### Step 3 — Write a single partition
 
@@ -334,18 +334,18 @@ The critical step that makes eMMC work from a payload is calling the IROM's own 
 
 This function reads a table pointer from IRAM at `0x400022FC` (which survives the exploit) and uses it to configure pinmux, pad drive strength, and voltage from the IROM's internal data tables. Without this call, `INT_CLK_STABLE` never sets regardless of clock source or divider.
 
-Full init sequence: Release PMC DPD → call IROM → CAR reset cycle → pad autocalibration → clock stable poll → CMD0 → CMD1 (poll OCR) → CMD2 → CMD3 → CMD7 → CMD16 → increase clock to 12 MHz → CMD6 (4-bit bus) → update HOST_CONTROL.
+Full init sequence: Release PMC DPD → call IROM → CAR reset cycle → pad autocalibration → clock stable poll → CMD0 → CMD1 (poll OCR) → CMD2 → CMD3 → CMD7 → CMD16 → increase clock to 24 MHz → CMD6 (4-bit bus) → update HOST_CONTROL.
 
 ### eMMC Transfer Speed
 
 The payload switches to high-speed mode after the identification sequence completes:
 
-- **Clock:** identification runs at 375 KHz (SDCLKFS=0x20); after CMD16 the divider is changed to SDCLKFS=0x01 → 12 MHz (within the 26 MHz default-speed limit, no timing mode switch needed).
+- **Clock:** identification runs at 375 KHz (SDCLKFS=0x20); after CMD16 the CAR source is switched to 48 MHz and the SDHCI divider is set to SDCLKFS=0x01 → 24 MHz (within the 26 MHz default-speed limit, no HS_TIMING switch needed).
 - **Bus width:** CMD6 SWITCH sets EXT_CSD[183]=1 (4-bit), and HOST_CONTROL is updated to match.
 - **Multi-block transfers:** reads use CMD18 (READ_MULTIPLE_BLOCK) and writes use CMD25 (WRITE_MULTIPLE_BLOCK) with SDHCI auto-CMD12, eliminating per-sector command overhead.
 - **Chunk size:** 32 sectors (16 KB) per USB bulk transfer.
 
-Combined these give roughly a 64× speedup over identification speed.
+Combined these give a significant speedup over the identification-speed single-sector transfers.
 
 ---
 
