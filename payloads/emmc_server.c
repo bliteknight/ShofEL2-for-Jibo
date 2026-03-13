@@ -444,6 +444,51 @@ static void init_sdmmc4(void) {
     if (cmd_ret < 0) { init_error = 0xE0000007; diag[33] = (u32)(-cmd_ret); diag[34] = last_cmd_int_status; return; }
 
     diag[30] = 5;  /* All CMDs succeeded! */
+
+    /* ============================================================
+     * PHASE 3: SWITCH TO HIGH-SPEED CLOCK AND 4-BIT BUS
+     * ============================================================
+     * The identification sequence above ran at 375 KHz (SDCLKFS=0x20).
+     * Now that the card is selected (CMD7) and block length set (CMD16),
+     * switch to 12 MHz and 4-bit bus for much faster data transfers.
+     *
+     * Clock change: SDCLKFS=0x01 → base_clk/2 = 24 MHz/2 = 12 MHz.
+     * This is within the eMMC default speed limit (26 MHz), so no
+     * timing mode switch via CMD6 HS_TIMING is required.
+     *
+     * Bus width: CMD6 SWITCH(EXT_CSD[183]=1) → 4-bit data bus.
+     * HOST_CONTROL bit 1 must be set to match.
+     */
+
+    /* Disable SD clock before changing divider */
+    {
+        u16 clk = read_clkctl();
+        write16(SDMMC4_BASE + 0x2C, clk & ~0x0004u);
+        delay(1000);
+
+        /* Set SDCLKFS=1 (divide by 2 → 12 MHz), keep ICE=1 */
+        clk = (clk & ~0xFF00u) | 0x0100u;
+        write16(SDMMC4_BASE + 0x2C, clk);
+
+        /* Wait for internal clock stable */
+        u32 to = 100000;
+        while (!(read_clkctl() & 0x0002u) && --to) ;
+
+        /* Re-enable SD clock */
+        write16(SDMMC4_BASE + 0x2C, read_clkctl() | 0x0004u);
+        delay(2000);
+    }
+
+    /* CMD6 SWITCH: set EXT_CSD[183] (BUS_WIDTH) = 1 (4-bit) */
+    cmd_ret = send_cmd(MMC_CMD6_SWITCH, 0x03B70100u);
+    if (cmd_ret >= 0) {
+        delay(10000);
+        /* Update HOST_CONTROL to match: set bit 1 (4-bit bus width) */
+        u8 hc = read8(SDMMC4_BASE + SDHCI_HOST_CONTROL);
+        hc = (hc & ~0x06u) | 0x02u;
+        write8(SDMMC4_BASE + SDHCI_HOST_CONTROL, hc);
+    }
+
     sdmmc4_initialized = 1;
 }
 
@@ -461,6 +506,71 @@ static void reset_cmd_dat(void) {
     write_swrst(SDHCI_RESET_CMD | SDHCI_RESET_DAT);
     u32 timeout = 10000;
     while ((read_swrst() & (SDHCI_RESET_CMD | SDHCI_RESET_DAT)) && --timeout) ;
+}
+
+/*
+ * Read `count` consecutive 512-byte sectors starting at `sector` using
+ * CMD18 (READ_MULTIPLE_BLOCK) with SDHCI auto-CMD12 and PIO transfer.
+ * Much faster than issuing one CMD17 per sector.
+ */
+static int read_emmc_multi(u32 sector, u32 count, u32 *buffer) {
+    u32 status, timeout;
+    u32 *p = buffer;
+
+    if (wait_ready() < 0) return -1;
+
+    write32(SDMMC4_BASE + SDHCI_INT_STATUS, 0xFFFFFFFF);
+    write32(SDMMC4_BASE + SDHCI_BLOCK_SIZE, (count << 16) | 0x200);
+    write32(SDMMC4_BASE + SDHCI_ARGUMENT, sector);
+    write32(SDMMC4_BASE + SDHCI_TRANSFER_MODE,
+            ((u32)MMC_CMD18_READM << 16) | XFER_MODE_READ_MULTI);
+
+    timeout = 500000;
+    do {
+        status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
+        if (status & SDHCI_INT_ERROR) {
+            last_read_int_status = status;
+            reset_cmd_dat();
+            send_cmd(MMC_CMD12_STOP, 0);
+            return -2;
+        }
+        if (--timeout == 0) { last_read_int_status = status; return -3; }
+    } while (!(status & SDHCI_INT_CMD_COMPLETE));
+
+    write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_CMD_COMPLETE);
+
+    for (u32 s = 0; s < count; s++) {
+        timeout = 500000;
+        do {
+            status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
+            if (status & SDHCI_INT_ERROR) {
+                last_read_int_status = status;
+                reset_cmd_dat();
+                send_cmd(MMC_CMD12_STOP, 0);
+                return -4;
+            }
+            if (--timeout == 0) { last_read_int_status = status; return -5; }
+        } while (!(status & SDHCI_INT_BUF_RD_READY));
+
+        for (u32 i = 0; i < 128; i++)
+            *p++ = read32(SDMMC4_BASE + SDHCI_BUFFER);
+
+        write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_BUF_RD_READY);
+    }
+
+    timeout = 500000;
+    do {
+        status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
+        if (status & SDHCI_INT_ERROR) {
+            last_read_int_status = status;
+            reset_cmd_dat();
+            return -6;
+        }
+        if (--timeout == 0) { last_read_int_status = status; return -7; }
+    } while (!(status & SDHCI_INT_XFER_COMPLETE));
+
+    write32(SDMMC4_BASE + SDHCI_INT_STATUS, 0xFFFFFFFF);
+    return 0;
 }
 
 /* Read a single 512-byte sector from eMMC */
@@ -617,13 +727,15 @@ void entry() {
                 u32 batch = remaining > EMMC_CHUNK_SECTORS ? EMMC_CHUNK_SECTORS : remaining;
                 u32 batch_bytes = batch * EMMC_SECTOR_SIZE;
 
-                for (u32 i = 0; i < batch; i++) {
-                    int result = read_emmc_sector(sector + i, (u32*)(buffer + i * EMMC_SECTOR_SIZE));
-                    if (result < 0) {
-                        u32 *err = (u32*)(buffer + i * EMMC_SECTOR_SIZE);
-                        err[0] = 0xDEAD0000 | (u32)((-result) & 0xFFFF);
-                        for (u32 j = 1; j < 128; j++) err[j] = 0xDEADDEAD;
-                    }
+                int result = read_emmc_multi(sector, batch, (u32*)buffer);
+                if (result < 0) {
+                    /* Fill chunk with error markers so host can detect it */
+                    u32 *err = (u32*)buffer;
+                    u32 total_words = batch * 128;
+                    for (u32 j = 0; j < total_words; j++)
+                        err[j] = (j % 128 == 0)
+                                  ? (0xDEAD0000 | (u32)((-result) & 0xFFFF))
+                                  : 0xDEADDEAD;
                 }
 
                 ep1_in_write_imm(buffer, batch_bytes, &num_xfer);

@@ -71,13 +71,17 @@
  *         (idx_check << 4) | (crc_check << 3) | response_type
  * Response types: 0x00=none, 0x01=136-bit(R2), 0x02=48-bit(R1), 0x03=48-bit+busy(R1b)
  */
+#define MMC_CMD6_SWITCH     0x061B  /* SWITCH (EXT_CSD): R1b, CRC+index check */
+#define MMC_CMD12_STOP      0x0C1A  /* STOP_TRANSMISSION: R1, no data */
 #define MMC_CMD17_READ      0x113A  /* READ_SINGLE_BLOCK: R1, data, CRC+index check */
+#define MMC_CMD18_READM     0x123A  /* READ_MULTIPLE_BLOCK: R1, data, CRC+index check */
 #define MMC_CMD24_WRITE     0x183A  /* WRITE_BLOCK: R1, data, CRC+index check */
 #define MMC_CMD13_STATUS    0x0D1A  /* SEND_STATUS: R1, no data, CRC+index check */
 
 /* Transfer Mode values (16-bit, lower half of 0x0C write) */
-#define XFER_MODE_READ      0x0010  /* Data direction = read, single block, PIO */
-#define XFER_MODE_WRITE     0x0000  /* Data direction = write, single block, PIO */
+#define XFER_MODE_READ       0x0010  /* single block, PIO, read direction */
+#define XFER_MODE_WRITE      0x0000  /* single block, PIO, write direction */
+#define XFER_MODE_READ_MULTI 0x0036  /* multi-block, block-count-enable, auto-CMD12, read */
 
 /* CAR (Clock and Reset Controller) registers for SDMMC4 */
 #define CAR_BASE            0x60006000
