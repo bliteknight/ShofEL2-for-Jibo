@@ -83,9 +83,7 @@
 #define XFER_MODE_READ             0x0010  /* single block, PIO, read direction */
 #define XFER_MODE_WRITE            0x0000  /* single block, PIO, write direction */
 #define XFER_MODE_READ_MULTI       0x0036  /* multi-block, block-count-enable, auto-CMD12, read, PIO */
-#define XFER_MODE_WRITE_MULTI      0x0016  /* multi-block, block-count-enable, auto-CMD12, write, PIO */
-#define XFER_MODE_SDMA_READ_MULTI  0x0037  /* multi-block, block-count-enable, auto-CMD12, read, SDMA */
-#define XFER_MODE_SDMA_WRITE_MULTI 0x0017  /* multi-block, block-count-enable, auto-CMD12, write, SDMA */
+#define XFER_MODE_WRITE_MULTI      0x0026  /* multi-block, block-count-enable, auto-CMD12, write, PIO */
 
 /* SDMA registers and helpers */
 #define SDHCI_DMA_ADDRESS    0x00           /* SDMA System Address register */

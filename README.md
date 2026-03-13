@@ -340,9 +340,9 @@ Full init sequence: Release PMC DPD → call IROM → CAR reset cycle → pad au
 
 The payload switches to high-speed mode after the identification sequence completes:
 
-- **Clock:** identification runs at 375 KHz (SDCLKFS=0x20); after CMD16 the CAR source is switched to 48 MHz and the SDHCI divider is set to SDCLKFS=0x01 → 24 MHz (within the 26 MHz default-speed limit, no HS_TIMING switch needed).
+- **Clock:** identification runs at 375 KHz (SDCLKFS=0x20, CAR N=0x20 → 24 MHz source, ÷64); after CMD16 SDCLKFS is changed to 0x01 → 12 MHz (CAR source unchanged, within the 26 MHz default-speed limit, no HS_TIMING switch needed).
 - **Bus width:** CMD6 SWITCH sets EXT_CSD[183]=1 (4-bit), and HOST_CONTROL is updated to match.
-- **Multi-block transfers:** reads use CMD18 (READ_MULTIPLE_BLOCK) and writes use CMD25 (WRITE_MULTIPLE_BLOCK) with SDHCI auto-CMD12, eliminating per-sector command overhead.
+- **Transfers:** reads use CMD18 (READ_MULTIPLE_BLOCK) with SDHCI auto-CMD12 for continuous streaming; writes use CMD25 (WRITE_MULTIPLE_BLOCK) with auto-CMD12. CMD17 (READ_SINGLE_BLOCK) is used only for the single-sector diagnostic read in EMMC_STATUS.
 - **Chunk size:** 32 sectors (16 KB) per USB bulk transfer.
 
 Combined these give a significant speedup over the identification-speed single-sector transfers.

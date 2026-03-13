@@ -14,7 +14,7 @@
 #define EMMC_CMD_EXIT       0xFF
 
 /* Transfer chunk sizes */
-#define EMMC_CHUNK_SECTORS  32
+#define EMMC_CHUNK_SECTORS  8
 #define EMMC_SECTOR_SIZE    512
 #define EMMC_CHUNK_BYTES    (EMMC_CHUNK_SECTORS * EMMC_SECTOR_SIZE)
 
