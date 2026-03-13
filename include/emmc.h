@@ -80,10 +80,17 @@
 #define MMC_CMD13_STATUS    0x0D1A  /* SEND_STATUS: R1, no data, CRC+index check */
 
 /* Transfer Mode values (16-bit, lower half of 0x0C write) */
-#define XFER_MODE_READ        0x0010  /* single block, PIO, read direction */
-#define XFER_MODE_WRITE       0x0000  /* single block, PIO, write direction */
-#define XFER_MODE_READ_MULTI  0x0036  /* multi-block, block-count-enable, auto-CMD12, read */
-#define XFER_MODE_WRITE_MULTI 0x0016  /* multi-block, block-count-enable, auto-CMD12, write */
+#define XFER_MODE_READ             0x0010  /* single block, PIO, read direction */
+#define XFER_MODE_WRITE            0x0000  /* single block, PIO, write direction */
+#define XFER_MODE_READ_MULTI       0x0036  /* multi-block, block-count-enable, auto-CMD12, read, PIO */
+#define XFER_MODE_WRITE_MULTI      0x0016  /* multi-block, block-count-enable, auto-CMD12, write, PIO */
+#define XFER_MODE_SDMA_READ_MULTI  0x0037  /* multi-block, block-count-enable, auto-CMD12, read, SDMA */
+#define XFER_MODE_SDMA_WRITE_MULTI 0x0017  /* multi-block, block-count-enable, auto-CMD12, write, SDMA */
+
+/* SDMA registers and helpers */
+#define SDHCI_DMA_ADDRESS    0x00           /* SDMA System Address register */
+#define SDHCI_INT_DMA        0x0008         /* INT_STATUS bit 3: DMA boundary interrupt */
+#define SDHCI_DMA_BOUNDARY   (3u << 12)     /* 32 KB DMA buffer boundary (safe for 16 KB chunks) */
 
 /* CAR (Clock and Reset Controller) registers for SDMMC4 */
 #define CAR_BASE            0x60006000

@@ -460,13 +460,25 @@ static void init_sdmmc4(void) {
      * HOST_CONTROL bit 1 must be set to match.
      */
 
-    /* Disable SD clock before changing divider */
+    /* Increase SD clock to 24 MHz:
+     *   - Change CAR divisor from N=0x20 (→ 24 MHz) to N=0x0F (→ 48 MHz)
+     *   - Keep SDCLKFS=1 (divide by 2): 48 / 2 = 24 MHz
+     * 24 MHz is within the eMMC default speed limit (26 MHz); no HS_TIMING
+     * switch via CMD6 is required.
+     *
+     * CAR divisor formula: clk = PLLP / (N/2 + 1)
+     * N=0x0F=15: 408 / (15/2 + 1) = 408 / 8.5 = 48 MHz */
     {
         u16 clk = read_clkctl();
-        write16(SDMMC4_BASE + 0x2C, clk & ~0x0004u);
+        write16(SDMMC4_BASE + 0x2C, clk & ~0x0004u);   /* disable SD clock */
         delay(1000);
 
-        /* Set SDCLKFS=1 (divide by 2 → 12 MHz), keep ICE=1 */
+        /* Switch CAR source to 48 MHz */
+        write32(CAR_BASE + 0x164, 0x0000000Fu);
+        (void)read32(CAR_BASE + 0x164);
+        delay(2000);
+
+        /* SDCLKFS=1 (divide by 2 → 24 MHz), keep ICE=1 */
         clk = (clk & ~0xFF00u) | 0x0100u;
         write16(SDMMC4_BASE + 0x2C, clk);
 
@@ -510,21 +522,30 @@ static void reset_cmd_dat(void) {
 
 /*
  * Read `count` consecutive 512-byte sectors starting at `sector` using
- * CMD18 (READ_MULTIPLE_BLOCK) with SDHCI auto-CMD12 and PIO transfer.
- * Much faster than issuing one CMD17 per sector.
+ * CMD18 (READ_MULTIPLE_BLOCK) with SDHCI SDMA and auto-CMD12.
+ *
+ * The SDHCI DMA engine moves data directly from the eMMC FIFO into `buffer`
+ * without the CPU touching each word. The ARM7TDMI polls only INT_STATUS,
+ * removing the PIO bottleneck and allowing the eMMC to run at 24 MHz.
+ *
+ * DMA boundary is set to 32 KB (value 3 in BLOCK_SIZE[14:12]). The buffer
+ * at 0x40020000 is 32 KB-aligned and the 16 KB chunk stays within one
+ * boundary window, so no mid-transfer DMA interrupt is expected. The DMA
+ * interrupt handler is included defensively.
  */
-static int read_emmc_multi(u32 sector, u32 count, u32 *buffer) {
+static int read_emmc_dma(u32 sector, u32 count, void *buffer) {
     u32 status, timeout;
-    u32 *p = buffer;
 
     if (wait_ready() < 0) return -1;
 
     write32(SDMMC4_BASE + SDHCI_INT_STATUS, 0xFFFFFFFF);
-    write32(SDMMC4_BASE + SDHCI_BLOCK_SIZE, (count << 16) | 0x200);
+    write32(SDMMC4_BASE + SDHCI_DMA_ADDRESS, (u32)buffer);
+    write32(SDMMC4_BASE + SDHCI_BLOCK_SIZE, (count << 16) | SDHCI_DMA_BOUNDARY | 0x200u);
     write32(SDMMC4_BASE + SDHCI_ARGUMENT, sector);
     write32(SDMMC4_BASE + SDHCI_TRANSFER_MODE,
-            ((u32)MMC_CMD18_READM << 16) | XFER_MODE_READ_MULTI);
+            ((u32)MMC_CMD18_READM << 16) | XFER_MODE_SDMA_READ_MULTI);
 
+    /* Wait for CMD_COMPLETE (command phase accepted by card) */
     timeout = 500000;
     do {
         status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
@@ -539,34 +560,23 @@ static int read_emmc_multi(u32 sector, u32 count, u32 *buffer) {
 
     write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_CMD_COMPLETE);
 
-    for (u32 s = 0; s < count; s++) {
-        timeout = 500000;
-        do {
-            status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
-            if (status & SDHCI_INT_ERROR) {
-                last_read_int_status = status;
-                reset_cmd_dat();
-                send_cmd(MMC_CMD12_STOP, 0);
-                return -4;
-            }
-            if (--timeout == 0) { last_read_int_status = status; return -5; }
-        } while (!(status & SDHCI_INT_BUF_RD_READY));
-
-        for (u32 i = 0; i < 128; i++)
-            *p++ = read32(SDMMC4_BASE + SDHCI_BUFFER);
-
-        write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_BUF_RD_READY);
-    }
-
-    timeout = 500000;
+    /* Wait for XFER_COMPLETE — DMA handles all data movement, no PIO needed.
+     * Handle DMA boundary interrupts defensively (should not fire for 16 KB). */
+    timeout = 2000000;
     do {
         status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
         if (status & SDHCI_INT_ERROR) {
             last_read_int_status = status;
             reset_cmd_dat();
-            return -6;
+            return -4;
         }
-        if (--timeout == 0) { last_read_int_status = status; return -7; }
+        if (status & SDHCI_INT_DMA) {
+            /* Boundary hit: re-arm DMA address (SDHCI already advanced it) */
+            u32 next = read32(SDMMC4_BASE + SDHCI_DMA_ADDRESS);
+            write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_DMA);
+            write32(SDMMC4_BASE + SDHCI_DMA_ADDRESS, next);
+        }
+        if (--timeout == 0) { last_read_int_status = status; return -5; }
     } while (!(status & SDHCI_INT_XFER_COMPLETE));
 
     write32(SDMMC4_BASE + SDHCI_INT_STATUS, 0xFFFFFFFF);
@@ -574,18 +584,18 @@ static int read_emmc_multi(u32 sector, u32 count, u32 *buffer) {
 }
 
 /* Write `count` consecutive 512-byte sectors starting at `sector` using
- * CMD25 (WRITE_MULTIPLE_BLOCK) with SDHCI auto-CMD12 and PIO transfer. */
-static int write_emmc_multi(u32 sector, u32 count, u32 *buffer) {
+ * CMD25 (WRITE_MULTIPLE_BLOCK) with SDHCI SDMA and auto-CMD12. */
+static int write_emmc_dma(u32 sector, u32 count, void *buffer) {
     u32 status, timeout;
-    u32 *p = buffer;
 
     if (wait_ready() < 0) return -1;
 
     write32(SDMMC4_BASE + SDHCI_INT_STATUS, 0xFFFFFFFF);
-    write32(SDMMC4_BASE + SDHCI_BLOCK_SIZE, (count << 16) | 0x200);
+    write32(SDMMC4_BASE + SDHCI_DMA_ADDRESS, (u32)buffer);
+    write32(SDMMC4_BASE + SDHCI_BLOCK_SIZE, (count << 16) | SDHCI_DMA_BOUNDARY | 0x200u);
     write32(SDMMC4_BASE + SDHCI_ARGUMENT, sector);
     write32(SDMMC4_BASE + SDHCI_TRANSFER_MODE,
-            ((u32)MMC_CMD25_WRITEM << 16) | XFER_MODE_WRITE_MULTI);
+            ((u32)MMC_CMD25_WRITEM << 16) | XFER_MODE_SDMA_WRITE_MULTI);
 
     timeout = 500000;
     do {
@@ -600,32 +610,19 @@ static int write_emmc_multi(u32 sector, u32 count, u32 *buffer) {
 
     write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_CMD_COMPLETE);
 
-    for (u32 s = 0; s < count; s++) {
-        timeout = 500000;
-        do {
-            status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
-            if (status & SDHCI_INT_ERROR) {
-                reset_cmd_dat();
-                send_cmd(MMC_CMD12_STOP, 0);
-                return -4;
-            }
-            if (--timeout == 0) return -5;
-        } while (!(status & SDHCI_INT_BUF_WR_READY));
-
-        for (u32 i = 0; i < 128; i++)
-            write32(SDMMC4_BASE + SDHCI_BUFFER, *p++);
-
-        write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_BUF_WR_READY);
-    }
-
-    timeout = 500000;
+    timeout = 2000000;
     do {
         status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
         if (status & SDHCI_INT_ERROR) {
             reset_cmd_dat();
-            return -6;
+            return -4;
         }
-        if (--timeout == 0) return -7;
+        if (status & SDHCI_INT_DMA) {
+            u32 next = read32(SDMMC4_BASE + SDHCI_DMA_ADDRESS);
+            write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_DMA);
+            write32(SDMMC4_BASE + SDHCI_DMA_ADDRESS, next);
+        }
+        if (--timeout == 0) return -5;
     } while (!(status & SDHCI_INT_XFER_COMPLETE));
 
     write32(SDMMC4_BASE + SDHCI_INT_STATUS, 0xFFFFFFFF);
@@ -744,7 +741,7 @@ void entry() {
                 u32 batch = remaining > EMMC_CHUNK_SECTORS ? EMMC_CHUNK_SECTORS : remaining;
                 u32 batch_bytes = batch * EMMC_SECTOR_SIZE;
 
-                int result = read_emmc_multi(sector, batch, (u32*)buffer);
+                int result = read_emmc_dma(sector, batch, buffer);
                 if (result < 0) {
                     /* Fill chunk with error markers so host can detect it */
                     u32 *err = (u32*)buffer;
@@ -776,7 +773,7 @@ void entry() {
                 ep1_out_read_imm(buffer, batch_bytes, &num_xfer);
 
                 if (write_result == 0) {
-                    int result = write_emmc_multi(sector, batch, (u32*)buffer);
+                    int result = write_emmc_dma(sector, batch, buffer);
                     if (result < 0)
                         write_result = 0xDEAD0000 | (u32)((-result) & 0xFFFF);
                 }
