@@ -188,17 +188,52 @@ sudo ./shofel2_t124 EMMC_READ 0 1D70000 ~/jibo_emmc.img
 
 Progress is printed every ~4 MB. A full dump takes approximately **1–2 hours**.
 
-### Step 3 — Inspect the image
+### Step 3 — Mount and inspect the image
 
+The image uses GPT. Use `gdisk` to repair the backup header (which reflects the
+original eMMC geometry), then `losetup -P` to expose all partitions as loop devices.
+
+**Repair the GPT backup header:**
 ```bash
-# Check the image looks sane
-xxd ~/jibo_emmc.img | head -4
+sudo gdisk ~/jibo_emmc.img
+# at the gdisk prompt:
+x        # expert menu
+e        # relocate backup GPT to end of actual disk
+w        # write
+y        # confirm
+```
 
-# List partitions
-fdisk -l ~/jibo_emmc.img
+**Attach the image as a loop device:**
+```bash
+sudo losetup -fP ~/jibo_emmc.img
+sudo losetup -l   # find which /dev/loopN was assigned
+```
 
-# Mount a partition (example: partition 1 — get offset from fdisk output)
-sudo mount -o loop,offset=$((sector * 512)) ~/jibo_emmc.img /mnt
+**Mount whichever partition you need:**
+```bash
+sudo mount /dev/loop0p1 /mnt   # rootfsA  — main OS
+sudo mount /dev/loop0p2 /mnt   # rootfsB  — backup OS slot
+sudo mount /dev/loop0p3 /mnt   # recovery
+sudo mount /dev/loop0p4 /mnt   # services — persistent app data
+sudo mount /dev/loop0p5 /mnt   # var
+sudo mount /dev/loop0p6 /mnt   # skills   — downloaded skill content
+```
+
+**Partition layout:**
+
+| # | Name | Size |
+|---|------|------|
+| p1 | rootfsA | 1000 MB |
+| p2 | rootfsB | 1000 MB |
+| p3 | recovery | 50 MB |
+| p4 | services | 2 GB |
+| p5 | var | 500 MB |
+| p6 | skills | ~10.2 GB |
+
+**Detach when done:**
+```bash
+sudo umount /mnt
+sudo losetup -d /dev/loop0
 ```
 
 ---
