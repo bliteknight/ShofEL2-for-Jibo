@@ -76,12 +76,14 @@
 #define MMC_CMD17_READ      0x113A  /* READ_SINGLE_BLOCK: R1, data, CRC+index check */
 #define MMC_CMD18_READM     0x123A  /* READ_MULTIPLE_BLOCK: R1, data, CRC+index check */
 #define MMC_CMD24_WRITE     0x183A  /* WRITE_BLOCK: R1, data, CRC+index check */
+#define MMC_CMD25_WRITEM    0x193A  /* WRITE_MULTIPLE_BLOCK: R1, data, CRC+index check */
 #define MMC_CMD13_STATUS    0x0D1A  /* SEND_STATUS: R1, no data, CRC+index check */
 
 /* Transfer Mode values (16-bit, lower half of 0x0C write) */
-#define XFER_MODE_READ       0x0010  /* single block, PIO, read direction */
-#define XFER_MODE_WRITE      0x0000  /* single block, PIO, write direction */
-#define XFER_MODE_READ_MULTI 0x0036  /* multi-block, block-count-enable, auto-CMD12, read */
+#define XFER_MODE_READ        0x0010  /* single block, PIO, read direction */
+#define XFER_MODE_WRITE       0x0000  /* single block, PIO, write direction */
+#define XFER_MODE_READ_MULTI  0x0036  /* multi-block, block-count-enable, auto-CMD12, read */
+#define XFER_MODE_WRITE_MULTI 0x0016  /* multi-block, block-count-enable, auto-CMD12, write */
 
 /* CAR (Clock and Reset Controller) registers for SDMMC4 */
 #define CAR_BASE            0x60006000
