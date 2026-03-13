@@ -522,37 +522,27 @@ static void reset_cmd_dat(void) {
 
 /*
  * Read `count` consecutive 512-byte sectors starting at `sector` using
- * CMD18 (READ_MULTIPLE_BLOCK) with SDHCI SDMA and auto-CMD12.
- *
- * The SDHCI DMA engine moves data directly from the eMMC FIFO into `buffer`
- * without the CPU touching each word. The ARM7TDMI polls only INT_STATUS,
- * removing the PIO bottleneck and allowing the eMMC to run at 24 MHz.
- *
- * DMA boundary is set to 32 KB (value 3 in BLOCK_SIZE[14:12]). The buffer
- * at 0x40020000 is 32 KB-aligned and the 16 KB chunk stays within one
- * boundary window, so no mid-transfer DMA interrupt is expected. The DMA
- * interrupt handler is included defensively.
+ * CMD18 (READ_MULTIPLE_BLOCK) with PIO and auto-CMD12.
  */
-static int read_emmc_dma(u32 sector, u32 count, void *buffer) {
+static int read_emmc_multi(u32 sector, u32 count, void *buffer) {
     u32 status, timeout;
+    u32 *buf32 = (u32 *)buffer;
 
     if (wait_ready() < 0) return -1;
 
     write32(SDMMC4_BASE + SDHCI_INT_STATUS, 0xFFFFFFFF);
-    write32(SDMMC4_BASE + SDHCI_DMA_ADDRESS, (u32)buffer);
-    write32(SDMMC4_BASE + SDHCI_BLOCK_SIZE, (count << 16) | SDHCI_DMA_BOUNDARY | 0x200u);
+    write32(SDMMC4_BASE + SDHCI_BLOCK_SIZE, (count << 16) | 0x200u);
     write32(SDMMC4_BASE + SDHCI_ARGUMENT, sector);
     write32(SDMMC4_BASE + SDHCI_TRANSFER_MODE,
-            ((u32)MMC_CMD18_READM << 16) | XFER_MODE_SDMA_READ_MULTI);
+            ((u32)MMC_CMD18_READM << 16) | XFER_MODE_READ_MULTI);
 
-    /* Wait for CMD_COMPLETE (command phase accepted by card) */
+    /* Wait for CMD_COMPLETE */
     timeout = 500000;
     do {
         status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
         if (status & SDHCI_INT_ERROR) {
             last_read_int_status = status;
             reset_cmd_dat();
-            send_cmd(MMC_CMD12_STOP, 0);
             return -2;
         }
         if (--timeout == 0) { last_read_int_status = status; return -3; }
@@ -560,69 +550,88 @@ static int read_emmc_dma(u32 sector, u32 count, void *buffer) {
 
     write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_CMD_COMPLETE);
 
-    /* Wait for XFER_COMPLETE — DMA handles all data movement, no PIO needed.
-     * Handle DMA boundary interrupts defensively (should not fire for 16 KB). */
-    timeout = 2000000;
+    /* PIO: read each sector when BUF_RD_READY fires */
+    for (u32 s = 0; s < count; s++) {
+        timeout = 500000;
+        do {
+            status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
+            if (status & SDHCI_INT_ERROR) {
+                last_read_int_status = status;
+                reset_cmd_dat();
+                return -4;
+            }
+            if (--timeout == 0) { last_read_int_status = status; return -5; }
+        } while (!(status & SDHCI_INT_BUF_RD_READY));
+
+        write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_BUF_RD_READY);
+
+        for (u32 i = 0; i < 128; i++)
+            *buf32++ = read32(SDMMC4_BASE + SDHCI_BUFFER);
+    }
+
+    /* Wait for XFER_COMPLETE (auto-CMD12 sent by controller) */
+    timeout = 500000;
     do {
         status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
         if (status & SDHCI_INT_ERROR) {
             last_read_int_status = status;
             reset_cmd_dat();
-            return -4;
+            return -6;
         }
-        if (status & SDHCI_INT_DMA) {
-            /* Boundary hit: re-arm DMA address (SDHCI already advanced it) */
-            u32 next = read32(SDMMC4_BASE + SDHCI_DMA_ADDRESS);
-            write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_DMA);
-            write32(SDMMC4_BASE + SDHCI_DMA_ADDRESS, next);
-        }
-        if (--timeout == 0) { last_read_int_status = status; return -5; }
+        if (--timeout == 0) { last_read_int_status = status; return -7; }
     } while (!(status & SDHCI_INT_XFER_COMPLETE));
 
     write32(SDMMC4_BASE + SDHCI_INT_STATUS, 0xFFFFFFFF);
     return 0;
 }
 
-/* Write `count` consecutive 512-byte sectors starting at `sector` using
- * CMD25 (WRITE_MULTIPLE_BLOCK) with SDHCI SDMA and auto-CMD12. */
-static int write_emmc_dma(u32 sector, u32 count, void *buffer) {
+/*
+ * Write `count` consecutive 512-byte sectors starting at `sector` using
+ * CMD25 (WRITE_MULTIPLE_BLOCK) with PIO and auto-CMD12.
+ */
+static int write_emmc_multi(u32 sector, u32 count, void *buffer) {
     u32 status, timeout;
+    u32 *buf32 = (u32 *)buffer;
 
     if (wait_ready() < 0) return -1;
 
     write32(SDMMC4_BASE + SDHCI_INT_STATUS, 0xFFFFFFFF);
-    write32(SDMMC4_BASE + SDHCI_DMA_ADDRESS, (u32)buffer);
-    write32(SDMMC4_BASE + SDHCI_BLOCK_SIZE, (count << 16) | SDHCI_DMA_BOUNDARY | 0x200u);
+    write32(SDMMC4_BASE + SDHCI_BLOCK_SIZE, (count << 16) | 0x200u);
     write32(SDMMC4_BASE + SDHCI_ARGUMENT, sector);
     write32(SDMMC4_BASE + SDHCI_TRANSFER_MODE,
-            ((u32)MMC_CMD25_WRITEM << 16) | XFER_MODE_SDMA_WRITE_MULTI);
+            ((u32)MMC_CMD25_WRITEM << 16) | XFER_MODE_WRITE_MULTI);
 
+    /* Wait for CMD_COMPLETE */
     timeout = 500000;
     do {
         status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
-        if (status & SDHCI_INT_ERROR) {
-            reset_cmd_dat();
-            send_cmd(MMC_CMD12_STOP, 0);
-            return -2;
-        }
+        if (status & SDHCI_INT_ERROR) { reset_cmd_dat(); return -2; }
         if (--timeout == 0) return -3;
     } while (!(status & SDHCI_INT_CMD_COMPLETE));
 
     write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_CMD_COMPLETE);
 
-    timeout = 2000000;
+    /* PIO: write each sector when BUF_WR_READY fires */
+    for (u32 s = 0; s < count; s++) {
+        timeout = 500000;
+        do {
+            status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
+            if (status & SDHCI_INT_ERROR) { reset_cmd_dat(); return -4; }
+            if (--timeout == 0) return -5;
+        } while (!(status & SDHCI_INT_BUF_WR_READY));
+
+        write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_BUF_WR_READY);
+
+        for (u32 i = 0; i < 128; i++)
+            write32(SDMMC4_BASE + SDHCI_BUFFER, *buf32++);
+    }
+
+    /* Wait for XFER_COMPLETE */
+    timeout = 500000;
     do {
         status = read32(SDMMC4_BASE + SDHCI_INT_STATUS);
-        if (status & SDHCI_INT_ERROR) {
-            reset_cmd_dat();
-            return -4;
-        }
-        if (status & SDHCI_INT_DMA) {
-            u32 next = read32(SDMMC4_BASE + SDHCI_DMA_ADDRESS);
-            write32(SDMMC4_BASE + SDHCI_INT_STATUS, SDHCI_INT_DMA);
-            write32(SDMMC4_BASE + SDHCI_DMA_ADDRESS, next);
-        }
-        if (--timeout == 0) return -5;
+        if (status & SDHCI_INT_ERROR) { reset_cmd_dat(); return -6; }
+        if (--timeout == 0) return -7;
     } while (!(status & SDHCI_INT_XFER_COMPLETE));
 
     write32(SDMMC4_BASE + SDHCI_INT_STATUS, 0xFFFFFFFF);
@@ -741,7 +750,7 @@ void entry() {
                 u32 batch = remaining > EMMC_CHUNK_SECTORS ? EMMC_CHUNK_SECTORS : remaining;
                 u32 batch_bytes = batch * EMMC_SECTOR_SIZE;
 
-                int result = read_emmc_dma(sector, batch, buffer);
+                int result = read_emmc_multi(sector, batch, buffer);
                 if (result < 0) {
                     /* Fill chunk with error markers so host can detect it */
                     u32 *err = (u32*)buffer;
@@ -773,7 +782,7 @@ void entry() {
                 ep1_out_read_imm(buffer, batch_bytes, &num_xfer);
 
                 if (write_result == 0) {
-                    int result = write_emmc_dma(sector, batch, buffer);
+                    int result = write_emmc_multi(sector, batch, buffer);
                     if (result < 0)
                         write_result = 0xDEAD0000 | (u32)((-result) & 0xFFFF);
                 }

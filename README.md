@@ -138,8 +138,8 @@ When multiple Jibos are connected, use `--port` to target a specific one:
 ls /sys/bus/usb/devices/ | grep -v :
 
 # Back up two Jibos simultaneously in separate terminals
-sudo ./shofel2_t124 --port 1-2 EMMC_READ 0 1CE0000 ~/jibo1.img
-sudo ./shofel2_t124 --port 1-3 EMMC_READ 0 1CE0000 ~/jibo2.img
+sudo ./shofel2_t124 --port 1-2 EMMC_READ 0 1D70000 ~/jibo1.img
+sudo ./shofel2_t124 --port 1-3 EMMC_READ 0 1D70000 ~/jibo2.img
 ```
 
 The port path is the sysfs device name (e.g. `1-2` = bus 1, port 2). For a device connected through a USB hub it will look like `1-2.3`.
@@ -177,13 +177,13 @@ Key things to check in the output:
 Put Jibo in RCM mode again, then:
 
 ```bash
-sudo ./shofel2_t124 EMMC_READ 0 1CE0000 ~/jibo_emmc.img
+sudo ./shofel2_t124 EMMC_READ 0 1D70000 ~/jibo_emmc.img
 ```
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | Start sector | `0` | Beginning of user area |
-| Sector count | `0x1CE0000` | 30,277,632 sectors (confirmed from Linux kernel detection) |
+| Sector count | `0x1D70000` | 30,932,992 sectors (~14.75 GiB, covers full GPT including skills partition) |
 | Output | `~/jibo_emmc.img` | Change path as needed |
 
 Progress is printed every ~4 MB. A full dump takes approximately **1–2 hours**.
