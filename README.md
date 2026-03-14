@@ -227,8 +227,8 @@ sudo mount /dev/loop0p6 /mnt   # skills   — downloaded skill content
 | p2 | rootfsB | 1000 MB | 2,048,034 | 0x1F4022 |
 | p3 | recovery | 50 MB | 4,096,034 | 0x3E8022 |
 | p4 | services | 2 GB | 4,198,434 | 0x401022 |
-| p5 | var | 500 MB | 8,392,738 | 0x801022 |
-| p6 | skills | ~10.2 GB | 9,416,738 | 0x8FB022 |
+| p5 | var | 500 MB | 8,294,434 | 0x7E9022 |
+| p6 | skills | ~10.2 GB | 9,318,434 | 0x8E3022 |
 
 **Detach when done:**
 ```bash
