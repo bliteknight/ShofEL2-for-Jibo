@@ -304,6 +304,47 @@ sudo ./shofel2_t124 EMMC_WRITE 800 ~/part1.img
 
 ---
 
+## Intrusion
+
+Once SSH is enabled in the rootfs (see [Writing an Image Back](#writing-an-image-back-to-jibos-emmc)), Jibo is accessible over Wi-Fi via mDNS:
+
+```bash
+ssh root@Gel-Density-Herb-Gauze.local
+```
+
+The hostname follows the pattern `<Word>-<Word>-<Word>-<Word>.local` and is advertised by `avahi-daemon` on the local network.
+
+### Remote Desktop (VNC)
+
+Jibo runs a full X server on `:0`. There is no VNC server in the default process list, but `x11vnc` can share the existing display if it is installed in the rootfs.
+
+**Start a VNC server on Jibo (SSH session):**
+
+```bash
+x11vnc -display :0 -nopw -listen localhost -rfbport 5900 &
+```
+
+**Connect from your PC via SSH tunnel:**
+
+```bash
+ssh -L 5900:localhost:5900 root@Gel-Density-Herb-Gauze.local
+# then connect your VNC client to localhost:5900
+```
+
+If `x11vnc` is not present, add it to the rootfs image and write it back with `EMMC_WRITE`.
+
+### Electron Remote Debugging
+
+The Jibo skill UI runs in Electron with `--remote-debugging-port=9222`. You can inspect and interact with it using Chrome DevTools without VNC:
+
+```bash
+ssh -L 9222:localhost:9222 root@Gel-Density-Herb-Gauze.local
+```
+
+Then open Chrome and navigate to `chrome://inspect`. The Jibo skill renderer will appear under **Remote Target**.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Fix |
