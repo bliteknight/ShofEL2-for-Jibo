@@ -221,14 +221,14 @@ sudo mount /dev/loop0p6 /mnt   # skills   — downloaded skill content
 
 **Partition layout:**
 
-| # | Name | Size |
-|---|------|------|
-| p1 | rootfsA | 1000 MB |
-| p2 | rootfsB | 1000 MB |
-| p3 | recovery | 50 MB |
-| p4 | services | 2 GB |
-| p5 | var | 500 MB |
-| p6 | skills | ~10.2 GB |
+| # | Name | Size | Start sector (dec) | Start sector (hex) |
+|---|------|------|-------------------|-------------------|
+| p1 | rootfsA | 1000 MB | 34 | 0x22 |
+| p2 | rootfsB | 1000 MB | 2,048,034 | 0x1F4022 |
+| p3 | recovery | 50 MB | 4,096,034 | 0x3E8022 |
+| p4 | services | 2 GB | 4,198,434 | 0x401022 |
+| p5 | var | 500 MB | 8,392,738 | 0x801022 |
+| p6 | skills | ~10.2 GB | 9,416,738 | 0x8FB022 |
 
 **Detach when done:**
 ```bash
