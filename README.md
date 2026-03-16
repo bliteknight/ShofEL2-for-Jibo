@@ -230,6 +230,36 @@ sudo mount /dev/loop0p6 /mnt   # skills   — downloaded skill content
 | p5 | var | 500 MB | 8,294,434 | 0x7E9022 |
 | p6 | skills | ~10.2 GB | 9,318,434 | 0x8E3022 |
 
+### Extracting Individual Partitions
+
+Use `EMMC_READ` with the partition's hex start sector and sector count. Re-enter RCM mode before each command.
+
+| Partition | Command |
+|-----------|---------|
+| p1 rootfsA | `sudo ./shofel2_t124 EMMC_READ 22 1F4000 ~/jibo_p1_rootfsA.img` |
+| p2 rootfsB | `sudo ./shofel2_t124 EMMC_READ 1F4022 1F4000 ~/jibo_p2_rootfsB.img` |
+| p3 recovery | `sudo ./shofel2_t124 EMMC_READ 3E8022 19000 ~/jibo_p3_recovery.img` |
+| p4 services | `sudo ./shofel2_t124 EMMC_READ 401022 3E8000 ~/jibo_p4_services.img` |
+| p5 var | `sudo ./shofel2_t124 EMMC_READ 7E9022 FA000 ~/jibo_p5_var.img` |
+| p6 skills | `sudo ./shofel2_t124 EMMC_READ 8E3022 13C000 ~/jibo_p6_skills.img` |
+
+Sector counts are derived from partition sizes: e.g. 500 MB ÷ 512 = 1,024,000 sectors = `0xFA000`.
+
+### Writing a Partition Back
+
+Use `EMMC_WRITE` with the partition's hex start sector and the image file. Re-enter RCM mode before each command.
+
+| Partition | Command |
+|-----------|---------|
+| p1 rootfsA | `sudo ./shofel2_t124 EMMC_WRITE 22 ~/jibo_p1_rootfsA.img` |
+| p2 rootfsB | `sudo ./shofel2_t124 EMMC_WRITE 1F4022 ~/jibo_p2_rootfsB.img` |
+| p3 recovery | `sudo ./shofel2_t124 EMMC_WRITE 3E8022 ~/jibo_p3_recovery.img` |
+| p4 services | `sudo ./shofel2_t124 EMMC_WRITE 401022 ~/jibo_p4_services.img` |
+| p5 var | `sudo ./shofel2_t124 EMMC_WRITE 7E9022 ~/jibo_p5_var.img` |
+| p6 skills | `sudo ./shofel2_t124 EMMC_WRITE 8E3022 ~/jibo_p6_skills.img` |
+
+> **Warning:** Writing to the wrong start sector will corrupt the eMMC. Double-check the hex offset before running.
+
 **Detach when done:**
 ```bash
 sudo umount /mnt
