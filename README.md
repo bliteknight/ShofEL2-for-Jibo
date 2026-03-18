@@ -245,6 +245,22 @@ Use `EMMC_READ` with the partition's hex start sector and sector count. Re-enter
 
 Sector counts are derived from partition sizes: e.g. 500 MB ÷ 512 = 1,024,000 sectors = `0xFA000`.
 
+### Extracting Individual Partitions from a Full Image
+
+If you already have a full eMMC dump (e.g. `jibo_emmc_full_v2.img`), use `dd` to slice out each partition without touching the device:
+
+| Partition | Command |
+|-----------|---------|
+| p1 rootfsA | `dd if=jibo_emmc_full_v2.img of=jibo_p1_rootfsA.img bs=512 skip=34 count=2048000` |
+| p2 rootfsB | `dd if=jibo_emmc_full_v2.img of=jibo_p2_rootfsB.img bs=512 skip=2048034 count=2048000` |
+| p3 recovery | `dd if=jibo_emmc_full_v2.img of=jibo_p3_recovery.img bs=512 skip=4096034 count=102400` |
+| p4 services | `dd if=jibo_emmc_full_v2.img of=jibo_p4_services.img bs=512 skip=4198434 count=4096000` |
+| p5 var | `dd if=jibo_emmc_full_v2.img of=jibo_p5_var.img bs=512 skip=8294434 count=1024000` |
+| p6 skills | `dd if=jibo_emmc_full_v2.img of=jibo_p6_skills.img bs=512 skip=9318434 count=21299200` |
+
+- `skip` = partition start sector (decimal)
+- `count` = partition size in 512-byte sectors
+
 ### Writing a Partition Back
 
 Use `EMMC_WRITE` with the partition's hex start sector and the image file. Re-enter RCM mode before each command.
